@@ -118,7 +118,7 @@ class Collection(metaclass=CollectionMeta):
                 self.__data__ = doc.to_dict()
                 return True
             except google.cloud.exceptions.NotFound:
-                print(f'No such document `{self.__document_name__}`!')
+                print('No such document `%s`!' % self.__document_name__)
                 return False
 
     def commit(self, is_merge=False):
