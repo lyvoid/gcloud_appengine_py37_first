@@ -2,7 +2,6 @@
 import logging
 from google.cloud import firestore
 import google
-from config.config import config
 from dao.dao_exception import *
 
 _db = firestore.Client()
@@ -14,11 +13,12 @@ class AssistFieldClass:
     该类用于在申明collection时作为辅助列
     """
 
-    def __init__(self, type_=None):
+    def __init__(self, type_=None, is_not_none=False):
         if type_ is not None:
             if type(type_) is not type:
-                raise MongoAssistInitialException('type_ must be a `type`, such as `int`')
+                raise FireStoreAssistInitialException('type_ must be a `type`, such as `int`')
         self.type_ = type_
+        self.is_not_none = is_not_none
 
 
 class CollectionMeta(type):
@@ -47,6 +47,7 @@ class CollectionMeta(type):
         attrs['__collection__'] = _collections[collection_name]
         attrs['__collection_name__'] = collection_name
         attrs['__type_map__'] = {}
+        attrs['__is_not_none__'] = []
 
         # delete all assist attr
         tmp = []
@@ -59,6 +60,8 @@ class CollectionMeta(type):
                 # 如果辅助类中定义了类型的话，就把类型记下来，
                 # 方便之后做限制
                 attrs['__type_map__'][k] = attrs[k].type_
+            if attrs[k].is_not_none:
+                attrs['__is_not_none__'].append(k)
             attrs.pop(k)
 
         return type.__new__(mcs, name, bases, attrs)
@@ -95,7 +98,7 @@ class Collection(metaclass=CollectionMeta):
         else:
             if key in self.__type_map__ and type(value) is not self.__type_map__[key]:
                 # 如果写了类型限制，但当前赋值类型与限制类型不同，抛出Exception
-                raise MongoDBTypeNotMatchException(
+                raise FireStoreTypeNotMatchException(
                     'type not match in collection `%s`, at key `%s`,'
                     'require type: `%s`,'
                     'get type: `%s`' % (
@@ -111,7 +114,6 @@ class Collection(metaclass=CollectionMeta):
         if self.document_name is None:
             self.__document__ = self.__collection__.document()
         else:
-            self.__document_name__ = self.document_name
             self.__document__ = self.__collection__.document(self.document_name)
             try:
                 doc = self.__document__.get()
@@ -121,14 +123,24 @@ class Collection(metaclass=CollectionMeta):
                 print('No such document `%s`!' % self.__document_name__)
                 return False
 
+    def load_by_data(self):
+        self.__document__ = self._find(self.__data__, row=1)[0]
+        self.__data__ = self.__document__.to_dict()
+        self.__document_name__ = self.__document__.id
+
     def commit(self, is_merge=False):
         if self.__document__ is None:
             logging.warning('need load `__document__` before commit')
-            return
+            return False
 
         if self.__data__ is None:
             logging.warning('can not commit to firestore since date is None')
             return False
+
+        for key in self.__is_not_none__:
+            if key not in self.__data__:
+                logging.warning('%s can not be none' % key)
+                return False
 
         if is_merge:
             self.__document__.update(
@@ -137,6 +149,7 @@ class Collection(metaclass=CollectionMeta):
             )
         else:
             self.__document__.set(self.__data__)
+        self.__document_name__ = self.__document__.id
         return True
 
     def delete(self):
@@ -147,7 +160,7 @@ class Collection(metaclass=CollectionMeta):
         self.__document__ = None
         self.__document_name__ = None
 
-    def delete_all(self, batch_size, one_time_delete=100):
+    def delete_all(self, batch_size=50, one_time_delete=100):
         docs = self.__collection__.limit(one_time_delete).get()
         deleted = 0
         for doc in docs:
@@ -156,7 +169,16 @@ class Collection(metaclass=CollectionMeta):
         if deleted >= batch_size:
             return self.delete_all(batch_size)
 
-    def where(self, wheres=None, row=None, order_by=None):
+    def _find(self, keys: dict, row=None, order_by=None):
+        wheres = []
+        for k, v in keys.items():
+            wheres.append([k, '==', v])
+        return self._where(wheres, row, order_by)
+
+    def find(self, keys: dict, row=None, order_by=None):
+        return [x.to_dict() for x in self.find(keys, row, order_by)]
+
+    def _where(self, wheres=None, row=None, order_by=None):
         """
         :param order_by: 按什么来排序
         :param wheres: [[u'population', u'>', 2500000]]
@@ -172,7 +194,10 @@ class Collection(metaclass=CollectionMeta):
         if row is not None:
             data = data.limit(row)
         docs = data.get()
-        return [x.to_dict() for x in docs]
+        return docs
+
+    def where(self, wheres=None, row=None, order_by=None):
+        return [x.to_dict() for x in self._where(wheres, row, order_by)]
 
     def insert_many(self, data: list, document_names=None):
         batch = _db.batch()

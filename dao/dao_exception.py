@@ -1,12 +1,12 @@
-class MongoDBTypeNotMatchException(Exception):
+class FireStoreTypeNotMatchException(Exception):
 
     def __init__(self, *args):
-        super(MongoDBTypeNotMatchException, self).__init__(*args)
+        super(FireStoreTypeNotMatchException, self).__init__(*args)
 
 
-class MongoAssistInitialException(Exception):
+class FireStoreAssistInitialException(Exception):
     def __init__(self, *args):
-        super(MongoAssistInitialException, self).__init__(*args)
+        super(FireStoreAssistInitialException, self).__init__(*args)
 
 
 class LoadWithoutDocNameException(Exception):

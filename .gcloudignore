@@ -1,7 +1,7 @@
 .idea/
 config_dev.py
 config_online.py
-
+.git/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
